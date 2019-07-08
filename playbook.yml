@@ -1,0 +1,101 @@
+- hosts: all
+  become: yes
+  user: vagrant
+  tasks:
+    - name: Add repository
+      yum_repository:
+        name: epel
+        description: EPEL YUM repo
+        baseurl: https://download.fedoraproject.org/pub/epel/$releasever/$basearch/
+        enabled: yes
+        gpgcheck: no
+
+    - name: check remi-release-7
+      stat: path=/etc/yum.repos.d/remi-php70.repo
+      register: remi_release_7
+
+    - name: Install remi-release-7
+      yum:
+        name: http://rpms.famillecollet.com/enterprise/remi-release-7.rpm
+        state: present
+      when: remi_release_7.stat.exists == false
+
+    - name: Install php
+      yum:
+        name: php
+        enablerepo: remi-php73
+        state: present
+
+    - name: Install modules
+      yum:
+        name: 
+          - gcc
+          - curl-devel
+          - expat-devel
+          - gettext-devel
+          - openssl-devel
+          - zlib-devel
+          - perl-ExtUtils-MakeMaker
+          - autoconf
+        state: present
+
+    - name: Check git installed
+      stat:
+        path: "/usr/bin/git"
+      register: git
+
+    - name: Cehck git version
+      shell: "/usr/bin/git --version"
+      changed_when: no
+      register: git_current_version
+      when: git.stat.exists
+
+    - set_fact: git_installed=true
+      when: git.stat.exists and
+            git_install_version in git_current_version.stdout
+
+    - name: Install git
+      block:
+        - name: Download git
+          get_url: 
+            url: https://github.com/git/git/archive/v{{ git_install_version }}.tar.gz
+            dest: /home/vagrant/
+        - name: unarchive git source
+          unarchive:
+            src: /home/vagrant/git-{{ git_install_version }}.tar.gz
+            dest: /home/vagrant/
+            remote_src: yes
+        - name: Make configure
+          command: make configure
+          args: 
+            chdir: /home/vagrant/git-{{ git_install_version }}
+        - name: ./configure
+          command: ./configure --prefix=/usr
+          args: 
+            chdir: /home/vagrant/git-{{ git_install_version }}
+        - name: make all
+          make: 
+            chdir: /home/vagrant/git-{{ git_install_version }}
+            target: all
+        - name: make install
+          make:
+            chdir: /home/vagrant/git-{{ git_install_version }}
+            target: install
+      when: git_installed is not defined
+
+    - name: Copy Identity File
+      block:
+        - name: Copy key
+          copy:
+            src: ./files/rsync_test_id_rsa
+            dest: /home/vagrant/.ssh/id_rsa
+            mode: 0600
+            owner: vagrant
+            group: vagrant
+
+        - name: Add pubkey
+          authorized_key:
+            user: vagrant
+            state: present
+            key: "{{ lookup('file', './files/rsync_test_id_rsa.pub') }}"
+
